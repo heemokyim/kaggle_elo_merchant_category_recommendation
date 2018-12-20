@@ -130,6 +130,8 @@ for key, values in HT_IMPUTE_DICT.items():
     
 for key, values in NM_IMPUTE_DICT.items():
     new_merch_trans[key] = np.where(new_merch_trans[key].isna(),NM_IMPUTE_DICT[key],new_merch_trans[key])
+    
+
 
 #Run a parallel process to extract the features from the historical transactions table
 partial_hist_trans = partial(gen_grouped_features,
@@ -178,6 +180,8 @@ full = full.merge(new_merch_features,how='left',on='card_id')
 all_vars = [dummie_vars,hist_trans_feats,new_merch_feats]
 PREDICTORS = list(itertools.chain.from_iterable(all_vars))
 TARGET = 'target'
+
+full[PREDICTORS] = full[PREDICTORS].fillna(value=0)
 
 xgb_params = {'max_depth': [3,6,9,12,15,18,21], 
               'subsample':[0.2,0.4,0.6,0.8],
