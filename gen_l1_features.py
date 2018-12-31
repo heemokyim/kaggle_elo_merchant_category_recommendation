@@ -8,9 +8,11 @@ Created on Wed Dec 19 15:11:57 2018
 import pandas as pd
 import numpy as np
 import re
+import itertools
 from sklearn.preprocessing import LabelEncoder 
 from scipy.stats import entropy, kurtosis, skew
 
+np.warnings.filterwarnings('ignore')
 DATE_PERCENTILES = np.append(np.percentile(np.arange(0,31),np.arange(0,100,20)),np.inf)
 
 def rolling_window(a,window):
@@ -41,8 +43,19 @@ def calc_rolling_function(series,window_size,column,function):
     rolling_function_cols = ['{}_w{}_r{}_{}'.format(column,x,window_size,function_name) for x in np.arange(0,window_size)]
     rolling_function_dict = dict(zip(rolling_function_cols,rolling_function))
     return(rolling_function_dict)
+    
+def calc_cat_pool_stats(series,column):
+#    series = df_series.copy()
+    
+    cat_pool_stats_dict = {}
+    percentages = series.value_counts()/len(series)
+    cat_pool_stats_dict['max_pct_{}'.format(column)] = np.max(percentages)
+    cat_pool_stats_dict['min_pct_{}'.format(column)] = np.min(percentages)
+    cat_pool_stats_dict['std_pct_{}'.format(column)] = np.std(percentages)
+    cat_pool_stats_dict['mean_pct_{}'.format(column)] = np.mean(percentages)
+    return(cat_pool_stats_dict)
 
-def calc_cat_stats(df_series,window_size):
+def calc_cat_stats(df_series,window_size,seq):
 #    df_series = df_grp[col].copy()
 #    window_size = 10
     
@@ -55,16 +68,23 @@ def calc_cat_stats(df_series,window_size):
     cat_feats['nunique_{}'.format(col)] = df_series.nunique()
     cat_feats['entropy_{}'.format(col)] = entropy(LabelEncoder().fit_transform(df_series))
     
-    rolling_entropy_feats = calc_rolling_entropy(encoded_values,window_size,col)
-    rolling_sequence_feats = calc_rolling_sequence(encoded_values,window_size,col)
+    cat_pool_feats = calc_cat_pool_stats(df_series,col)
     
-    full_cat_feats = {**cat_feats,
-                      **rolling_entropy_feats,
-                      **rolling_sequence_feats}
+    if seq:
+        rolling_entropy_feats = calc_rolling_entropy(encoded_values,window_size,col)
+        rolling_sequence_feats = calc_rolling_sequence(encoded_values,window_size,col)
+        
+        full_cat_feats = {**cat_feats,
+                          **cat_pool_feats,
+                          **rolling_entropy_feats,
+                          **rolling_sequence_feats}
+    else:
+        full_cat_feats = {**cat_feats,
+                          **cat_pool_feats}
     
     return(full_cat_feats)
     
-def calc_num_stats(df_series,window_size,q_values=np.arange(5,100,20)):
+def calc_num_stats(df_series,window_size,seq,q_values=np.arange(5,100,20)):
     
     col = df_series.name
     
@@ -80,24 +100,28 @@ def calc_num_stats(df_series,window_size,q_values=np.arange(5,100,20)):
     percentile_cols = ['q{}_{}'.format(q,col) for q in q_values]
     percentile_feats = dict(zip(percentile_cols,percentile_values))
     
-    rolling_mean_feats = calc_rolling_function(df_series,window_size,col,np.mean)
-    rolling_std_feats = calc_rolling_function(df_series,window_size,col,np.std)
-    rolling_min_feats = calc_rolling_function(df_series,window_size,col,np.min)
-    rolling_max_feats = calc_rolling_function(df_series,window_size,col,np.max)
-    rolling_kurtosis_feats = calc_rolling_function(df_series,window_size,col,kurtosis)
-    rolling_skew_feats = calc_rolling_function(df_series,window_size,col,skew)
-    
-    full_num_feats = {**num_feats,
-                      **percentile_feats,
-                      **rolling_mean_feats,
-                      **rolling_std_feats,
-                      **rolling_min_feats,
-                      **rolling_max_feats,
-                      **rolling_kurtosis_feats,
-                      **rolling_skew_feats}
+    if seq:
+        rolling_mean_feats = calc_rolling_function(df_series,window_size,col,np.mean)
+        rolling_std_feats = calc_rolling_function(df_series,window_size,col,np.std)
+        rolling_min_feats = calc_rolling_function(df_series,window_size,col,np.min)
+        rolling_max_feats = calc_rolling_function(df_series,window_size,col,np.max)
+        rolling_kurtosis_feats = calc_rolling_function(df_series,window_size,col,kurtosis)
+        rolling_skew_feats = calc_rolling_function(df_series,window_size,col,skew)
+        
+        full_num_feats = {**num_feats,
+                          **percentile_feats,
+                          **rolling_mean_feats,
+                          **rolling_std_feats,
+                          **rolling_min_feats,
+                          **rolling_max_feats,
+                          **rolling_kurtosis_feats,
+                          **rolling_skew_feats}
+    else:
+        full_num_feats = {**num_feats,
+                          **percentile_feats}
     return(full_num_feats)
     
-def calc_date_stats(df_series,window_size):
+def calc_date_stats(df_series,window_size,seq):
     
 #    df_series = df_grp[col].copy()
 #    window_size = 10
@@ -110,15 +134,15 @@ def calc_date_stats(df_series,window_size):
     day_series = pd.cut(day_series,DATE_PERCENTILES)
     day_series.name = '{}_day'.format(col)
     
-    month_feats = calc_cat_stats(month_series,window_size)
-    day_feats = calc_cat_stats(day_series,window_size)
+    month_feats = calc_cat_stats(month_series,window_size,seq)
+    day_feats = calc_cat_stats(day_series,window_size,seq)
     
     full_date_feats = {**month_feats,
-                      **day_feats}
+                       **day_feats}
     
     return(full_date_feats)
 
-def calc_overall_feats(df_grp,sort_key,feature_types_dict,feature_windows_dict):
+def calc_overall_feats(df_grp,sort_key,feature_types_dict,feature_windows_dict,columns,seq):
     
 #    df_grp = df_grp.copy()
 #    sort_col = 'purchase_date'
@@ -129,21 +153,21 @@ def calc_overall_feats(df_grp,sort_key,feature_types_dict,feature_windows_dict):
     
     feat_list = {}
     
-    for col in df_grp.columns:
+    for col in columns:
         
         df_series = df_grp[col]
         window_size = feature_windows_dict[col]
         window_size = min(len(df_series),window_size)
         
         if feature_types_dict[col] == 'c':
-            feats = calc_cat_stats(df_series,window_size)
+            feats = calc_cat_stats(df_series,window_size,seq)
         elif feature_types_dict[col] == 'n':
-            feats = calc_num_stats(df_series,window_size)
+            feats = calc_num_stats(df_series,window_size,seq)
         elif feature_types_dict[col] == 'd':
-            feats = calc_date_stats(df_series,window_size)
+            feats = calc_date_stats(df_series,window_size,seq)
         elif feature_types_dict[col] == 'cn':
-            cat_feats = calc_cat_stats(df_series,window_size)
-            num_feats = calc_num_stats(df_series,window_size)
+            cat_feats = calc_cat_stats(df_series,window_size,seq)
+            num_feats = calc_num_stats(df_series,window_size,seq)
             feats = {**cat_feats,**num_feats}
         elif feature_types_dict[col] == 'k':
             next
@@ -152,31 +176,45 @@ def calc_overall_feats(df_grp,sort_key,feature_types_dict,feature_windows_dict):
         feat_list.update(feats)
     return(pd.Series(feat_list))
     
-def gen_grouped_features(df,groupby_key,sort_key,feature_types_dict,feature_windows_dict,header):
-#    df = new_merch_trans.copy()
-#    groupby_key='card_id'
-#    sort_key='purchase_date'
-#    feature_types_dict=NM_FEATURE_TYPES
-#    feature_windows_dict=NM_FEATURE_WINDOWS
-#    header='nm'
-#    
-#    for key, df_grp in df.groupby(groupby_key):
-#        break
-#        features = calc_overall_feats(df_grp,sort_key,feature_types_dict,feature_windows_dict)
     
-    features_grp = df.groupby(groupby_key).apply(lambda x: calc_overall_feats(x,sort_key,feature_types_dict,feature_windows_dict))
+def gen_grouped_features(df,groupby_key,sort_key,feature_types_dict,feature_windows_dict,header,columns,seq):
+#    df = hist_trans.copy()
+#    groupby_key=['card_id']
+#    sort_key='purchase_date'
+#    feature_types_dict=HT_FEATURE_TYPES
+#    feature_windows_dict=HT_FEATURE_WINDOWS
+#    header='ht'
+#    columns=L1_COLUMNS
+#    seq=True
+##    
+#    for key, df_grp in df.groupby(groupby_key):
+#        features = calc_overall_feats(df_grp,sort_key,feature_types_dict,feature_windows_dict,columns,seq)
+    
+    features_grp = df.groupby(groupby_key).apply(lambda x: calc_overall_feats(x,sort_key,feature_types_dict,feature_windows_dict,columns,seq))
+    
+#    a = pd.read_pickle('F:/kaggle_elo_merchant_category_recommendation/data/full/features/l1/hist_trans_features_0.pkl')
+    
     if type(features_grp) == pd.core.series.Series:
         features_grp = pd.DataFrame(features_grp)
         features_grp = features_grp.reset_index()
-        features_grp.columns=[groupby_key,'feature','value']
-        features_grp = features_grp.set_index([groupby_key,'feature']).unstack('feature')
+        if type(groupby_key) == list:
+            features_grp.columns=list(itertools.chain.from_iterable([groupby_key,['feature','value']]))
+            index_cols = list(itertools.chain.from_iterable([groupby_key,['feature']]))
+            features_grp = features_grp.set_index(index_cols).unstack('feature')
+        else:
+            features_grp.columns=[groupby_key,'feature','value']
+            features_grp = features_grp.set_index([groupby_key,'feature']).unstack('feature')
         features_grp.columns = features_grp.columns.droplevel(0)
     
-    seq_cols = [cols for cols in features_grp.columns if len(re.findall('_seq$',cols)) >0]
-    features_grp[seq_cols] = features_grp[seq_cols].astype(str)
+    if seq:
+        seq_cols = [cols for cols in features_grp.columns if len(re.findall('_seq$',cols)) >0]
+        features_grp[seq_cols] = features_grp[seq_cols].astype(str)
     features_grp.columns = ['{}_{}'.format(header,c) for c in features_grp.columns]
+    if len(groupby_key) > 1:
+        features_grp = features_grp.unstack()
+        features_grp.columns = ['{}_{}_{}'.format(c[0],groupby_key[1],c[1]) for c in features_grp.columns]
     return(features_grp)
-
+    
 if __name__ == '__main__':
     
     features_grp = gen_grouped_features(hist_trans,'card_id','purchase_date',HT_FEATURE_TYPES,HT_FEATURE_WINDOWS)
